@@ -32,6 +32,9 @@ class RunConfig:
     claude_timeout: float = 90.0
     record_path: Path = field(default_factory=lambda: Path("runs") / f"run-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
     step_delay: float = 0.0
+    # each dye is either absent or at least this fraction of a well (0: any mix on the grid); the
+    # comparison sets it so the optimiser works under the same pipette range as the MCP server
+    min_fraction: float = 0.0
 
     def validate(self) -> None:
         hex_to_rgb(self.target)
@@ -48,9 +51,10 @@ class RunConfig:
 class LiveState:
     """Thread-safe snapshot of the run for the live web view."""
 
-    def __init__(self, config: RunConfig):
+    def __init__(self, config: RunConfig, mode: str = "loop"):
         self._lock = threading.Lock()
         self._state = {
+            "mode": mode,  # "loop": the optimiser (and Claude reviewing); "agent": Claude driving via MCP tools
             "target": config.target,
             "threshold": config.threshold,
             "max_rounds": config.max_rounds,
@@ -65,6 +69,7 @@ class LiveState:
             "claude": {"enabled": config.use_claude, "reason": ""},
             "finished": False,
             "deck_url": None,
+            "feed": [],  # agent mode: every MCP tool call, with its result or refusal
         }
 
     def update(self, **changes) -> None:
@@ -90,9 +95,9 @@ class RunResult:
     claude_ran: bool
 
 
-def closest_reachable(target_rgb) -> float:
+def closest_reachable(target_rgb, min_fraction: float = 0.0) -> float:
     """Smallest noise-free distance any grid mix can reach. Only a simulator can know this."""
-    grid = simplex_grid()
+    grid = simplex_grid(min_fraction=min_fraction)
     return min(colour_distance(ideal_rgb_from_fractions(row), target_rgb) for row in grid.to_numpy())
 
 
@@ -105,7 +110,7 @@ async def run(config: RunConfig, live: Optional[LiveState] = None, robot: Option
     live = live or LiveState(config)
     target_rgb = hex_to_rgb(config.target)
     started = time.monotonic()
-    floor = closest_reachable(target_rgb)
+    floor = closest_reachable(target_rgb, config.min_fraction)
     if floor >= config.threshold:
         log.warning("Simulator check: the closest colour these three dyes can make is dE %.2f from %s, "
                     "so the loop cannot get below the %.1f threshold; it will stop at max rounds.",
@@ -133,7 +138,7 @@ async def run(config: RunConfig, live: Optional[LiveState] = None, robot: Option
         await robot.setup()
     robot.on_event = on_robot_event
     reader = PlateReader(noise_sd=config.noise_sd, seed=config.seed)
-    optimiser = Optimiser(seed=config.seed)
+    optimiser = Optimiser(seed=config.seed, min_fraction=config.min_fraction)
 
     config.record_path.parent.mkdir(parents=True, exist_ok=True)
     history: List[dict] = []

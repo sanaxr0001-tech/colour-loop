@@ -21,6 +21,10 @@ from .physics import DYES
 
 WELL_TOTAL_UL = 180.0  # every well is made up to this volume (the plate holds 200 uL)
 VOLUME_STEP_UL = 0.1  # the pipette's volume resolution we round to
+# The working range of the OT-2 P300 single-channel GEN2 the deck is set up with. PyLabRobot's
+# simulator does not enforce it; the MCP tool server does (see mcp_server.py).
+PIPETTE_MIN_UL, PIPETTE_MAX_UL = 20.0, 300.0
+WELL_NAMES = [f"{row}{col}" for col in range(1, 13) for row in "ABCDEFGH"]  # column-major, like PyLabRobot
 
 Event = Callable[[dict], Awaitable[None] | None]
 
@@ -84,19 +88,28 @@ class ColourRobot:
         if self.step_delay:
             await asyncio.sleep(self.step_delay)
 
-    async def mix_wells(self, mixes: Sequence[Sequence[float]]) -> List[WellFill]:
-        """Dispense one mix (dye fractions in ``DYES`` order) into each of the next free wells.
+    async def mix_wells(
+        self,
+        mixes: Sequence[Sequence[float]],
+        wells: Sequence[str] | None = None,
+        total_ul: float = WELL_TOTAL_UL,
+    ) -> List[WellFill]:
+        """Dispense one mix (dye fractions in ``DYES`` order) into each of the next free wells,
+        or into the named ``wells``, making each up to ``total_ul``.
 
         One fresh tip per dye per call: the tip fetches that dye for every well, then is discarded.
         """
-        plate_wells = self.layout.plate.get_all_items()
-        # column-major fill (A1, B1, ... H1, A2, ...), which is the order PyLabRobot lists wells in
-        targets = plate_wells[self._next_well : self._next_well + len(mixes)]
-        if len(targets) < len(mixes):
-            raise RuntimeError("the plate is full")
-        self._next_well += len(mixes)
+        if wells is not None:
+            targets = [self.layout.plate.get_well(name) for name in wells]
+        else:
+            plate_wells = self.layout.plate.get_all_items()
+            # column-major fill (A1, B1, ... H1, A2, ...), which is the order PyLabRobot lists wells in
+            targets = plate_wells[self._next_well : self._next_well + len(mixes)]
+            if len(targets) < len(mixes):
+                raise RuntimeError("the plate is full")
+            self._next_well += len(mixes)
 
-        plan = [fractions_to_volumes(m) for m in mixes]
+        plan = [fractions_to_volumes(m, total_ul) for m in mixes]
         fills = []
         for well, vols in zip(targets, plan):
             key = self.layout.plate.get_child_identifier(well)
@@ -124,3 +137,12 @@ class ColourRobot:
     def well_volume_ul(self, well: str) -> float:
         """Total liquid PyLabRobot's volume tracker has in a well (cross-checks the ledger)."""
         return self.layout.plate.get_well(well).tracker.get_used_volume()
+
+    def well_capacity_ul(self, well: str) -> float:
+        return self.layout.plate.get_well(well).max_volume
+
+    def tips_left(self) -> int:
+        return len(self.layout.tips.get_all_items()) - self._next_tip
+
+    def dye_left_ul(self) -> Dict[str, float]:
+        return {d: round(t.tracker.get_used_volume(), 1) for d, t in self.layout.dye_tubes.items()}

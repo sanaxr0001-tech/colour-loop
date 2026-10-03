@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #f4f2ee; --card: #ffffff; --ink: #1d1b19; --muted: #6b665f; --line: #e2ddd5;
-    --accent: #3b5bdb; --claude: #c2410c; --ok: #2f7d32; --empty: #ece8e1;
+    --accent: #3b5bdb; --claude: #c2410c; --ok: #2f7d32; --empty: #ece8e1; --bad: #c62828; --bad-bg: #fdecec;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
@@ -24,7 +24,8 @@
   .deck { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
           display: flex; flex-direction: column; min-height: 0; }
   .deck .label { padding: 8px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
-  .deck iframe { border: 0; width: 100%; flex: 1; }
+  .deck .frame { flex: 1; position: relative; overflow: hidden; }
+  .deck iframe { position: absolute; top: 0; left: 0; border: 0; width: 100%; height: 100%; }
   .deck .none { padding: 24px; color: var(--muted); }
   .panel { display: grid; grid-template-columns: auto minmax(0, 1fr);
            grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; min-height: 0; }
@@ -59,18 +60,56 @@
   .note .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   .note .why { margin-top: 6px; font-size: 12px; color: var(--claude); }
   .activity { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+  .mode { display: none; font-size: 12px; font-weight: 600; color: #fff; background: var(--claude);
+          border-radius: 999px; padding: 2px 10px; }
+  .well.suggested { box-shadow: 0 0 0 2px var(--accent); }
+  .well.pending { background: repeating-linear-gradient(45deg, #ece8e1, #ece8e1 3px, #d9d3c9 3px, #d9d3c9 5px);
+                  border: 1px dashed #8a847b; }
+  .feed { display: none; flex-direction: column; min-height: 0; }
+  .feed .head { display: flex; align-items: baseline; gap: 8px; }
+  .feed .head h2 { margin: 0; }
+  .feed .counts { font-size: 12px; color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .feed .counts b.bad { color: var(--bad); }
+  .feed ol { list-style: none; margin: 8px 0 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+  .call { border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 8px; padding: 6px 9px;
+          margin-bottom: 6px; background: var(--card); }
+  .call.new { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #fff4d6; } to { background: var(--card); } }
+  .call .top { display: flex; gap: 6px; align-items: baseline; }
+  .call .seq { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 22px; }
+  .call .tool { font: 600 12.5px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .call .args { font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .call .res { font-size: 12px; margin-top: 2px; color: var(--ink); }
+  .call .res .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px;
+                   margin: 0 3px 0 6px; border: 1px solid rgba(0,0,0,.15); }
+  .call.refused { border-color: #f1b5b5; border-left-color: var(--bad); background: var(--bad-bg); }
+  .call.refused.new { animation: none; }
+  .call.refused .res { color: var(--bad); font-weight: 600; }
+  .badge { font-size: 10px; font-weight: 700; letter-spacing: .5px; color: #fff; background: var(--bad);
+           border-radius: 4px; padding: 1px 5px; margin-left: auto; }
+  body.agent .mode { display: inline-block; }
+  body.agent main { grid-template-columns: minmax(0, .95fr) minmax(0, 1fr) minmax(0, .9fr); }
+  body.agent .panel { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  body.agent .plate-card { display: flex; gap: 18px; align-items: center; }
+  body.agent .feed { display: flex; }
+  /* the deck column is narrower in agent mode: show the whole Visualizer, scaled down */
+  body.agent .deck iframe { width: 150%; height: 150%; transform: scale(.6667); transform-origin: 0 0; }
+  body.agent .note p { max-height: 4.2em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3;
+                       -webkit-box-orient: vertical; }
 </style>
 </head>
 <body>
 <header>
   <h1>colour-loop</h1>
   <span class="sim">all instruments simulated</span>
+  <span class="mode">Claude driving through MCP tools</span>
   <span class="round" id="round"></span>
   <span class="status" id="status">connecting...</span>
 </header>
 <main>
   <section class="deck">
-    <div class="label">Robot deck: PyLabRobot Visualizer, OT-2 deck, simulator backend (tips in slot 1, dyes in slot 4, plate in slot 5)</div>
+    <div class="label" id="deckLabel">Robot deck: PyLabRobot Visualizer, OT-2 deck, simulator backend (tips in slot 1, dyes in slot 4, plate in slot 5)</div>
     <div class="none" id="nodeck">Deck view appears when the run is started with <code>--visual</code>.</div>
   </section>
   <section class="panel">
@@ -83,10 +122,12 @@
         <div class="de" id="deBox"><div class="num" id="bestDe">-</div><div class="unit">CIEDE2000 distance</div></div>
       </div>
     </div>
-    <div class="card">
-      <h2>Plate: every well as measured</h2>
-      <div class="plate" id="plate"></div>
-      <div class="legend">
+    <div class="card plate-card">
+      <div>
+        <h2>Plate: every well as measured</h2>
+        <div class="plate" id="plate"></div>
+      </div>
+      <div class="legend" id="legend">
         <span><i style="box-shadow:0 0 0 2px var(--ink)"></i>best well</span>
         <span><i style="box-shadow:0 0 0 2px var(--claude)"></i>mix chosen by Claude</span>
         <span>others: chosen by BayBE</span>
@@ -97,12 +138,16 @@
       <div class="plot" id="plot"></div>
     </div>
     <div class="card note wide">
-      <h2>Claude's latest note</h2>
+      <h2 id="noteTitle">Claude's latest note</h2>
       <div class="meta" id="noteMeta"></div>
       <p id="note">-</p>
       <div class="why" id="noteWhy"></div>
       <div class="activity" id="activity"></div>
     </div>
+  </section>
+  <section class="card feed">
+    <div class="head"><h2>Claude's tool calls</h2><span class="counts" id="feedCounts"></span></div>
+    <ol id="feed"></ol>
   </section>
 </main>
 <script>
@@ -116,7 +161,73 @@ for (const r of ROWS) {
   for (let c = 1; c <= 12; c++) { const w = document.createElement("div"); w.className = "well"; w.title = r + c;
     plate.appendChild(w); wellEls[r + c] = w; }
 }
-let deckLoaded = false, seenWells = 0;
+let deckLoaded = false, seenWells = 0, seenCalls = 0, agentSetUp = false;
+
+function setUpAgent() {
+  document.body.classList.add("agent");
+  document.getElementById("deckLabel").textContent =
+    "Robot deck: PyLabRobot Visualizer of the simulated OT-2, replaying every dispense the lab server made";
+  document.getElementById("noteTitle").textContent = "Claude says";
+  const legend = document.getElementById("legend");
+  legend.replaceChildren();
+  for (const [style, text] of [["box-shadow:0 0 0 2px var(--ink)", "best well"],
+                               ["box-shadow:0 0 0 2px var(--claude)", "mix Claude chose itself"],
+                               ["box-shadow:0 0 0 2px var(--accent)", "mix from the optimiser's suggestions"],
+                               ["border:1px dashed #8a847b", "dispensed, not read yet"]]) {
+    const span = document.createElement("span"), dot = document.createElement("i");
+    dot.setAttribute("style", style); span.append(dot, text); legend.append(span);
+  }
+  agentSetUp = true;
+}
+
+const fmt = v => (typeof v === "number" ? (+v.toFixed(3)).toString() : typeof v === "string" ? v : JSON.stringify(v));
+function argText(call) {
+  const a = call.args || {};
+  if (call.tool === "dispense_mix") {
+    const f = a.fractions;
+    const mix = f && typeof f === "object" && !Array.isArray(f)
+      ? Object.entries(f).map(([k, v]) => `${k} ${fmt(v)}`).join(", ") : fmt(f);
+    return `${fmt(a.well)}: ${mix}` + (a.total_volume_ul !== undefined ? `, ${fmt(a.total_volume_ul)} uL` : "");
+  }
+  if (call.tool === "read_plate") return Array.isArray(a.wells) ? a.wells.join(", ") : fmt(a.wells);
+  if (call.tool === "suggest_next_mixes") return a.n !== undefined ? `n=${fmt(a.n)}` : "";
+  const text = Object.keys(a).length ? JSON.stringify(a) : "";
+  return text.length > 80 ? text.slice(0, 80) + "..." : text;
+}
+
+function renderFeed(state) {
+  const feed = state.feed || [];
+  const refused = feed.filter(c => !c.ok).length;
+  const counts = document.getElementById("feedCounts");
+  counts.replaceChildren(`${feed.length} calls, `);
+  const b = document.createElement("b"); b.textContent = `${refused} refused`;
+  if (refused) b.className = "bad";
+  counts.append(b);
+  const list = document.getElementById("feed");
+  for (let i = seenCalls; i < feed.length; i++) {
+    const c = feed[i], li = document.createElement("li");
+    li.className = "call new" + (c.ok ? "" : " refused");
+    const top = document.createElement("div"); top.className = "top";
+    const seq = document.createElement("span"); seq.className = "seq"; seq.textContent = `#${c.seq}`;
+    const tool = document.createElement("span"); tool.className = "tool"; tool.textContent = c.tool;
+    top.append(seq, tool);
+    if (!c.ok) { const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = "REFUSED"; top.append(badge); }
+    const args = document.createElement("div"); args.className = "args"; args.textContent = argText(c);
+    args.title = JSON.stringify(c.args);
+    const res = document.createElement("div"); res.className = "res";
+    res.textContent = c.ok ? c.brief : "Refused: " + (c.reason || "");
+    if (c.ok && c.tool === "read_plate") {  // a colour chip per reading
+      res.replaceChildren();
+      for (const part of (c.brief || "").split(/(#[0-9a-f]{6})/)) {
+        if (/^#[0-9a-f]{6}$/.test(part)) { const sw = document.createElement("span"); sw.className = "sw";
+          sw.style.background = part; res.append(sw, part); } else res.append(part);
+      }
+    }
+    li.append(top, args, res);
+    list.prepend(li);
+  }
+  seenCalls = feed.length;
+}
 
 function plot(state) {
   const el = document.getElementById("plot");
@@ -152,8 +263,9 @@ function render(state) {
   document.getElementById("targetHex").textContent = state.target;
   document.getElementById("activity").textContent = state.activity || "";
   if (state.deck_url && !deckLoaded) {
-    const f = document.createElement("iframe"); f.src = state.deck_url;
-    document.getElementById("nodeck").replaceWith(f); deckLoaded = true;
+    const frame = document.createElement("div"), f = document.createElement("iframe");
+    frame.className = "frame"; f.src = state.deck_url; frame.append(f);
+    document.getElementById("nodeck").replaceWith(frame); deckLoaded = true;
   }
   const best = state.best;
   if (best) {
@@ -163,17 +275,32 @@ function render(state) {
     document.getElementById("bestDe").textContent = best.delta_e.toFixed(2);
     document.getElementById("deBox").classList.toggle("ok", best.delta_e < state.threshold);
   }
+  if (state.mode === "agent" && !agentSetUp) setUpAgent();
   state.wells.forEach((w, i) => {
     const el = wellEls[w.well]; if (!el) return;
-    el.style.background = w.hex;
-    el.title = `${w.well} round ${w.round}: R/Y/B ${w.fractions.map(f => f.toFixed(2)).join("/")} -> ${w.hex}, dE ${w.delta_e.toFixed(2)} (${w.decided_by})`;
-    el.classList.toggle("claude", w.decided_by === "claude");
+    const mix = `R/Y/B ${w.fractions.map(f => f.toFixed(2)).join("/")}`;
+    el.classList.toggle("pending", !w.hex);
+    el.style.background = w.hex || "";
+    el.title = w.hex ? `${w.well} round ${w.round}: ${mix} -> ${w.hex}, dE ${w.delta_e.toFixed(2)} (${w.decided_by})`
+                     : `${w.well}: ${mix}, dispensed, not read yet`;
+    el.classList.toggle("claude", w.decided_by === "claude" && (state.mode !== "agent" || !!w.hex));
+    el.classList.toggle("suggested", w.decided_by === "suggestion");
     el.classList.toggle("best", !!best && best.well === w.well);
     if (i >= seenWells) el.classList.add("new");
   });
   seenWells = state.wells.length;
   const notes = state.notes;
-  if (!state.claude.enabled) {
+  if (state.mode === "agent") {
+    renderFeed(state);
+    if (notes.length) {
+      const n = notes[notes.length - 1];
+      document.getElementById("noteMeta").textContent = n.round ? `after round ${n.round}` : "before the first round";
+      document.getElementById("note").textContent = n.note.replace(/\*\*/g, "").replace(/\s*\n+\s*/g, " ");
+    } else {
+      document.getElementById("noteMeta").textContent = "waiting for Claude";
+    }
+    document.getElementById("noteWhy").textContent = "";
+  } else if (!state.claude.enabled) {
     document.getElementById("noteMeta").textContent = "Claude layer off: " + (state.claude.reason || "") + ". Optimiser only.";
   } else if (notes.length) {
     const n = notes[notes.length - 1];
