@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "colour-loop"
+version = "0.1.0"
+description = "A tiny self-driving colour lab: a simulated OT-2 mixes dyes, a Bayesian optimiser and Claude close the loop."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pylabrobot>=0.2.2",
+  "baybe>=0.15",
+  "numpy",
+  "pandas",
+  "websockets",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+video = ["playwright"]  # only for scripts/record_demo.py
+
+[project.scripts]
+colour-loop = "colour_loop.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/colour_loop"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

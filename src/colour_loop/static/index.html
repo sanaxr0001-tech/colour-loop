@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>colour-loop live</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --card: #ffffff; --ink: #1d1b19; --muted: #6b665f; --line: #e2ddd5;
+    --accent: #3b5bdb; --claude: #c2410c; --ok: #2f7d32; --empty: #ece8e1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 18px;
+           border-bottom: 1px solid var(--line); background: var(--card); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header .sim { font-size: 12px; color: var(--muted); border: 1px solid var(--line);
+                border-radius: 999px; padding: 2px 10px; }
+  header .status { margin-left: auto; font-weight: 600; }
+  header .round { color: var(--muted); font-variant-numeric: tabular-nums; }
+  main { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px;
+         padding: 14px 18px; height: calc(100vh - 56px); }
+  .deck { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+          display: flex; flex-direction: column; min-height: 0; }
+  .deck .label { padding: 8px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .deck iframe { border: 0; width: 100%; flex: 1; }
+  .deck .none { padding: 24px; color: var(--muted); }
+  .panel { display: grid; grid-template-columns: auto minmax(0, 1fr);
+           grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; min-height: 0; }
+  .panel .wide { grid-column: 1 / -1; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+             margin: 0 0 8px; font-weight: 600; }
+  .swatches { display: flex; gap: 14px; align-items: stretch; }
+  .sw { flex: 1; }
+  .sw .chip { height: 64px; border-radius: 8px; border: 1px solid rgba(0,0,0,.12); }
+  .sw .cap { margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sw .cap b { color: var(--ink); }
+  .de { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 110px; }
+  .de .num { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .de .unit { font-size: 12px; color: var(--muted); }
+  .de.ok .num { color: var(--ok); }
+  .plate { display: grid; grid-template-columns: 14px repeat(12, 24px); gap: 4px; align-items: center; }
+  .plate .lab { font-size: 10px; color: var(--muted); text-align: center; }
+  .well { aspect-ratio: 1; border-radius: 50%; background: var(--empty); border: 1px solid rgba(0,0,0,.08);
+          position: relative; }
+  .well.claude { box-shadow: 0 0 0 2px var(--claude); }
+  .well.best { box-shadow: 0 0 0 3px var(--ink); }
+  .well.new { animation: pop .5s ease-out; }
+  @keyframes pop { from { transform: scale(.4); } to { transform: scale(1); } }
+  .legend { margin-top: 10px; font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px;
+              margin-right: 4px; background: var(--empty); }
+  .chart svg { width: 100%; height: 100%; display: block; }
+  .chart { display: flex; flex-direction: column; min-height: 0; }
+  .chart .plot { flex: 1; min-height: 120px; }
+  .note p { margin: 0; }
+  .note .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .note .why { margin-top: 6px; font-size: 12px; color: var(--claude); }
+  .activity { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>colour-loop</h1>
+  <span class="sim">all instruments simulated</span>
+  <span class="round" id="round"></span>
+  <span class="status" id="status">connecting...</span>
+</header>
+<main>
+  <section class="deck">
+    <div class="label">Robot deck: PyLabRobot Visualizer, OT-2 deck, simulator backend (tips in slot 1, dyes in slot 4, plate in slot 5)</div>
+    <div class="none" id="nodeck">Deck view appears when the run is started with <code>--visual</code>.</div>
+  </section>
+  <section class="panel">
+    <div class="card wide">
+      <h2>Target vs best so far</h2>
+      <div class="swatches">
+        <div class="sw"><div class="chip" id="target"></div><div class="cap">target <b id="targetHex"></b></div></div>
+        <div class="sw"><div class="chip" id="best" style="background:var(--empty)"></div>
+          <div class="cap">best <b id="bestHex">-</b> <span id="bestWhere"></span></div></div>
+        <div class="de" id="deBox"><div class="num" id="bestDe">-</div><div class="unit">CIEDE2000 distance</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Plate: every well as measured</h2>
+      <div class="plate" id="plate"></div>
+      <div class="legend">
+        <span><i style="box-shadow:0 0 0 2px var(--ink)"></i>best well</span>
+        <span><i style="box-shadow:0 0 0 2px var(--claude)"></i>mix chosen by Claude</span>
+        <span>others: chosen by BayBE</span>
+      </div>
+    </div>
+    <div class="card chart">
+      <h2>Distance to target, by round</h2>
+      <div class="plot" id="plot"></div>
+    </div>
+    <div class="card note wide">
+      <h2>Claude's latest note</h2>
+      <div class="meta" id="noteMeta"></div>
+      <p id="note">-</p>
+      <div class="why" id="noteWhy"></div>
+      <div class="activity" id="activity"></div>
+    </div>
+  </section>
+</main>
+<script>
+const ROWS = "ABCDEFGH";
+const plate = document.getElementById("plate");
+plate.appendChild(document.createElement("span"));
+for (let c = 1; c <= 12; c++) { const s = document.createElement("span"); s.className = "lab"; s.textContent = c; plate.appendChild(s); }
+const wellEls = {};
+for (const r of ROWS) {
+  const l = document.createElement("span"); l.className = "lab"; l.textContent = r; plate.appendChild(l);
+  for (let c = 1; c <= 12; c++) { const w = document.createElement("div"); w.className = "well"; w.title = r + c;
+    plate.appendChild(w); wellEls[r + c] = w; }
+}
+let deckLoaded = false, seenWells = 0;
+
+function plot(state) {
+  const el = document.getElementById("plot");
+  const W = el.clientWidth || 400, H = el.clientHeight || 160, P = { l: 34, r: 10, t: 8, b: 22 };
+  const rounds = state.rounds, maxR = Math.max(state.max_rounds, 1);
+  const vals = rounds.flatMap(r => [r.round_best, r.best]);
+  const top = Math.max(10, ...vals.map(v => Math.min(v, 60))) * 1.08;
+  const x = r => P.l + (W - P.l - P.r) * (maxR === 1 ? 0.5 : (r - 1) / (maxR - 1));
+  const y = v => P.t + (H - P.t - P.b) * (1 - Math.min(v, top) / top);
+  let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  for (let i = 0; i <= 4; i++) { const v = top * i / 4;
+    s += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}" stroke="#ece8e1"/>`;
+    s += `<text x="${P.l - 6}" y="${y(v) + 4}" font-size="10" fill="#6b665f" text-anchor="end">${v.toFixed(0)}</text>`; }
+  for (let r = 1; r <= maxR; r++) s += `<text x="${x(r)}" y="${H - 6}" font-size="10" fill="#6b665f" text-anchor="middle">${r}</text>`;
+  s += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(state.threshold)}" y2="${y(state.threshold)}" stroke="#2f7d32" stroke-dasharray="4 4"/>`;
+  s += `<text x="${W - P.r}" y="${y(state.threshold) - 4}" font-size="10" fill="#2f7d32" text-anchor="end">stop at ${state.threshold}</text>`;
+  if (rounds.length) {
+    s += `<polyline fill="none" stroke="#3b5bdb" stroke-width="2.5" points="${rounds.map(r => `${x(r.round)},${y(r.best)}`).join(" ")}"/>`;
+    for (const r of rounds) {
+      s += `<circle cx="${x(r.round)}" cy="${y(r.round_best)}" r="3.5" fill="#fff" stroke="#6b665f"/>`;
+      s += `<circle cx="${x(r.round)}" cy="${y(r.best)}" r="3.5" fill="#3b5bdb"/>`;
+    }
+  }
+  s += `<text x="${P.l + 4}" y="${P.t + 12}" font-size="10" fill="#3b5bdb">best so far</text>`;
+  s += `<text x="${P.l + 70}" y="${P.t + 12}" font-size="10" fill="#6b665f">o best in that round</text></svg>`;
+  el.innerHTML = s;
+}
+
+function render(state) {
+  document.getElementById("status").textContent = state.status;
+  document.getElementById("round").textContent = state.round ? `round ${state.round} of max ${state.max_rounds}` : "";
+  document.getElementById("target").style.background = state.target;
+  document.getElementById("targetHex").textContent = state.target;
+  document.getElementById("activity").textContent = state.activity || "";
+  if (state.deck_url && !deckLoaded) {
+    const f = document.createElement("iframe"); f.src = state.deck_url;
+    document.getElementById("nodeck").replaceWith(f); deckLoaded = true;
+  }
+  const best = state.best;
+  if (best) {
+    document.getElementById("best").style.background = best.hex;
+    document.getElementById("bestHex").textContent = best.hex;
+    document.getElementById("bestWhere").textContent = `(well ${best.well}, round ${best.round})`;
+    document.getElementById("bestDe").textContent = best.delta_e.toFixed(2);
+    document.getElementById("deBox").classList.toggle("ok", best.delta_e < state.threshold);
+  }
+  state.wells.forEach((w, i) => {
+    const el = wellEls[w.well]; if (!el) return;
+    el.style.background = w.hex;
+    el.title = `${w.well} round ${w.round}: R/Y/B ${w.fractions.map(f => f.toFixed(2)).join("/")} -> ${w.hex}, dE ${w.delta_e.toFixed(2)} (${w.decided_by})`;
+    el.classList.toggle("claude", w.decided_by === "claude");
+    el.classList.toggle("best", !!best && best.well === w.well);
+    if (i >= seenWells) el.classList.add("new");
+  });
+  seenWells = state.wells.length;
+  const notes = state.notes;
+  if (!state.claude.enabled) {
+    document.getElementById("noteMeta").textContent = "Claude layer off: " + (state.claude.reason || "") + ". Optimiser only.";
+  } else if (notes.length) {
+    const n = notes[notes.length - 1];
+    document.getElementById("noteMeta").textContent = `round ${n.round}` + (n.override ? " - Claude replaced one proposal" : " - kept the optimiser's proposals");
+    document.getElementById("note").textContent = n.note;
+    document.getElementById("noteWhy").textContent = n.override && n.why ? "Why: " + n.why : "";
+  } else {
+    document.getElementById("noteMeta").textContent = "waiting for the first round";
+  }
+  plot(state);
+}
+
+async function poll() {
+  try { const r = await fetch("/state", { cache: "no-store" }); render(await r.json()); }
+  catch (e) { document.getElementById("status").textContent = "run ended (server stopped)"; }
+  setTimeout(poll, 400);
+}
+poll();
+</script>
+</body>
+</html>
