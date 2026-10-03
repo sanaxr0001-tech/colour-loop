@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "colour-loop"
-version = "0.1.0"
-description = "A tiny self-driving colour lab: a simulated OT-2 mixes dyes, a Bayesian optimiser and Claude close the loop."
+version = "0.2.0"
+description = "A tiny self-driving colour lab: a simulated OT-2 mixes dyes, and a Bayesian optimiser or Claude (through MCP tools) closes the loop."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,6 +14,8 @@ dependencies = [
   "numpy",
   "pandas",
   "websockets",
+  "mcp>=2.3",
+  "matplotlib",  # the comparison chart
 ]
 
 [project.optional-dependencies]
@@ -22,6 +24,7 @@ video = ["playwright"]  # only for scripts/record_demo.py
 
 [project.scripts]
 colour-loop = "colour_loop.cli:main"
+colour-loop-mcp = "colour_loop.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/colour_loop"]
