@@ -158,8 +158,12 @@ class ClaudeAdvisor:
         self.timeout = timeout
         self.executable = executable
         self.unavailable_reason: Optional[str] = None
+
+    def _run(self, args: List[str], timeout: float) -> subprocess.CompletedProcess:
         # Run the CLI from an empty directory so no project settings, hooks or CLAUDE.md apply.
-        self._workdir = tempfile.mkdtemp(prefix="colour-loop-claude-")
+        with tempfile.TemporaryDirectory(prefix="colour-loop-claude-") as workdir:
+            return subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                                  env=_child_env(), cwd=workdir)
 
     def check(self) -> bool:
         """True if the CLI exists and is logged in; otherwise records why not."""
@@ -168,14 +172,7 @@ class ClaudeAdvisor:
             self.unavailable_reason = f"`{self.executable}` is not on PATH"
             return False
         try:
-            out = subprocess.run(
-                [path, "auth", "status"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env=_child_env(),
-                cwd=self._workdir,
-            )
+            out = self._run([path, "auth", "status"], timeout=30)
             status = json.loads(out.stdout or "{}")
         except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as exc:
             self.unavailable_reason = f"could not read `claude auth status`: {exc}"
@@ -209,14 +206,7 @@ class ClaudeAdvisor:
         ]
         start = time.monotonic()
         try:
-            out = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-                env=_child_env(),
-                cwd=self._workdir,
-            )
+            out = self._run(cmd, timeout=self.timeout)
         except subprocess.TimeoutExpired:
             return Advice(error=f"claude timed out after {self.timeout:.0f}s", seconds=time.monotonic() - start)
         except OSError as exc:

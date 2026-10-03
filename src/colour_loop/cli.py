@@ -93,7 +93,7 @@ async def _run(args: argparse.Namespace) -> int:
 
     state = "converged" if result.converged else "did not converge"
     print(
-        f"\n{state} in {result.rounds} rounds ({result.seconds:.0f} s). Best well {result.best['well']}: "
+        f"\n{state} in {result.rounds} round{'s' if result.rounds != 1 else ''} ({result.seconds:.0f} s). Best well {result.best['well']}: "
         f"{result.best['hex']} vs target {config.target}, CIEDE2000 {result.best['delta_e']:.2f}.\n"
         f"Claude layer: {_claude_summary(config, result)}. Record: {result.record_path}",
         flush=True,

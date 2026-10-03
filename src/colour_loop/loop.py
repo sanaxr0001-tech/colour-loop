@@ -228,6 +228,6 @@ async def run(config: RunConfig, live: Optional[LiveState] = None, robot: Option
     seconds = time.monotonic() - started
     best = _best(history)
     verdict = "converged" if converged else "stopped at max rounds"
-    live.update(status=f"{verdict} after {round_no} rounds", activity=f"best well {best['well']} at dE {best['delta_e']:.2f}", finished=True)
+    live.update(status=f"{verdict} after {round_no} round{'s' if round_no != 1 else ''}", activity=f"best well {best['well']} at dE {best['delta_e']:.2f}", finished=True)
     return RunResult(rounds=round_no, converged=converged, best=best, record_path=config.record_path,
                      seconds=seconds, claude_ran=claude_ran)
